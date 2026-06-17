@@ -10,9 +10,9 @@ const router = Router();
 
 // Preferred model order for improvement
 const IMPROVE_MODELS = [
-  { provider: "anthropic", model: "claude-sonnet-4-20250514", apiType: "anthropic" },
+  { provider: "anthropic", model: "claude-sonnet-4-6", apiType: "anthropic" },
   { provider: "openai",    model: "gpt-4o",                   apiType: "openai" },
-  { provider: "google",    model: "gemini-2.5-flash-preview-05-20", apiType: "google" },
+  { provider: "google",    model: "gemini-2.5-flash", apiType: "google" },
   { provider: "xai",       model: "grok-3",                   apiType: "openai", baseUrl: "https://api.x.ai/v1" },
 ];
 

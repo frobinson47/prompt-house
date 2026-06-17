@@ -7,8 +7,8 @@ const router = Router();
 // Model ID → provider mapping
 const MODEL_PROVIDERS: Record<string, { provider: string; apiModel: string }> = {
   // Anthropic
-  "claude-opus-4":     { provider: "anthropic", apiModel: "claude-opus-4-20250514" },
-  "claude-sonnet-4":   { provider: "anthropic", apiModel: "claude-sonnet-4-20250514" },
+  "claude-opus-4":     { provider: "anthropic", apiModel: "claude-opus-4-7" },
+  "claude-sonnet-4":   { provider: "anthropic", apiModel: "claude-sonnet-4-6" },
   "claude-haiku-3.5":  { provider: "anthropic", apiModel: "claude-haiku-4-5-20251001" },
   // OpenAI
   "gpt-4o":            { provider: "openai", apiModel: "gpt-4o" },
@@ -16,8 +16,8 @@ const MODEL_PROVIDERS: Record<string, { provider: string; apiModel: string }> = 
   "o3":                { provider: "openai", apiModel: "o3" },
   "o4-mini":           { provider: "openai", apiModel: "o4-mini" },
   // Google
-  "gemini-2.5-pro":    { provider: "google", apiModel: "gemini-2.5-pro-preview-05-06" },
-  "gemini-2.5-flash":  { provider: "google", apiModel: "gemini-2.5-flash-preview-05-20" },
+  "gemini-2.5-pro":    { provider: "google", apiModel: "gemini-2.5-pro" },
+  "gemini-2.5-flash":  { provider: "google", apiModel: "gemini-2.5-flash" },
   // xAI
   "grok-3":            { provider: "xai", apiModel: "grok-3" },
   "grok-4":            { provider: "xai", apiModel: "grok-4" },
@@ -30,9 +30,9 @@ const MODEL_GROUPS = [
     providerId: "anthropic",
     color: "orange",
     models: [
-      { id: "claude-opus-4", name: "Claude Opus 4" },
-      { id: "claude-sonnet-4", name: "Claude Sonnet 4" },
-      { id: "claude-haiku-3.5", name: "Claude Haiku 3.5" },
+      { id: "claude-opus-4", name: "Claude Opus 4.7" },
+      { id: "claude-sonnet-4", name: "Claude Sonnet 4.6" },
+      { id: "claude-haiku-3.5", name: "Claude Haiku 4.5" },
     ],
   },
   {
