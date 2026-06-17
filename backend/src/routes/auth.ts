@@ -11,7 +11,41 @@ async function getClient(): Promise<Client> {
   const issuerUrl = process.env.OIDC_ISSUER_URL;
   if (!issuerUrl) throw new Error("OIDC_ISSUER_URL not configured");
 
-  const issuer = await Issuer.discover(issuerUrl);
+  const internalBase = process.env.OIDC_INTERNAL_BASE;
+
+  let issuer: Issuer;
+  if (internalBase) {
+    // Fetch discovery doc via internal (Docker network) URL so we bypass
+    // Cloudflare's edge bot challenge for server-to-server calls.
+    // The public issuer URL stays in tokens for normal OIDC validation.
+    const publicBase = new URL(issuerUrl);
+    const wellKnownPath =
+      publicBase.pathname.replace(/\/$/, "") + "/.well-known/openid-configuration";
+    const discoveryUrl = internalBase.replace(/\/$/, "") + wellKnownPath;
+
+    const res = await fetch(discoveryUrl);
+    if (!res.ok) {
+      throw new Error(`Internal OIDC discovery failed: ${res.status}`);
+    }
+    const metadata: any = await res.json();
+
+    // Authentik builds URLs from the request host, so discovery returns
+    // internal URLs (http://authentik-server:9000/...). Backend endpoints
+    // (token/userinfo/jwks) stay internal — only this process calls them.
+    // Browser-facing endpoints (authorization/end_session) are rewritten
+    // to the public URL so the user's browser can reach them. The issuer
+    // is left as Authentik returned it so the iss claim in tokens matches.
+    const internalOrigin = internalBase.replace(/\/$/, "");
+    const toPublic = (u?: string) =>
+      u ? u.replace(internalOrigin, publicBase.origin) : u;
+    metadata.authorization_endpoint = toPublic(metadata.authorization_endpoint);
+    metadata.end_session_endpoint = toPublic(metadata.end_session_endpoint);
+
+    issuer = new Issuer(metadata);
+  } else {
+    issuer = await Issuer.discover(issuerUrl);
+  }
+
   oidcClient = new issuer.Client({
     client_id: process.env.OIDC_CLIENT_ID!,
     client_secret: process.env.OIDC_CLIENT_SECRET!,
@@ -20,6 +54,7 @@ async function getClient(): Promise<Client> {
   });
   return oidcClient;
 }
+
 
 // GET /api/auth/login — redirect to Authentik
 router.get("/login", async (req: Request, res: Response) => {
