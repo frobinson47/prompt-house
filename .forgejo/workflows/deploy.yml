@@ -1,0 +1,31 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # self-hosted runs in the runner container itself, which already has
+    # /opt/prompthouse + /var/run/docker.sock bind-mounted from the host.
+    runs-on: self-hosted
+    steps:
+      - name: Checkout into a build dir
+        uses: actions/checkout@v4
+        with:
+          path: prompthouse-build
+
+      - name: Sync source into /opt/prompthouse (preserving host-only state)
+        run: |
+          rsync -a --delete             --exclude='.env' --exclude='.env.*'             --exclude='node_modules/' --exclude='dist/' --exclude='build/'             --exclude='*.bak'             --exclude='docker-compose.override.yml'             --exclude='data/'             prompthouse-build/ /opt/prompthouse/
+
+      - name: Rebuild + restart app
+        working-directory: /opt/prompthouse
+        run: |
+          docker compose up -d --build app
+          sleep 6
+          docker compose logs app --tail 20
