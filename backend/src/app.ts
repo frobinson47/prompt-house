@@ -37,7 +37,7 @@ app.use(session({
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     sameSite: "lax",
   },
-}));
+}) as any);
 
 app.get("/health", async (_req, res) => {
   try {
