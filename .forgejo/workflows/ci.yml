@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: docker
+    container:
+      image: node:20-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Build (frontend + backend workspaces)
+        run: npm run build
