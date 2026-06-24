@@ -134,11 +134,12 @@ router.post("/classify", async (req: Request, res: Response) => {
 // POST /api/prompts/analyze — analyze prompt structure
 router.post("/analyze", async (req: Request, res: Response) => {
   try {
-    const { content } = req.body;
+    const { title = "", content } = req.body;
     if (!content) {
       return res.status(400).json({ error: "content is required" });
     }
-    const result = analyzeStructure(content);
+    const classification = classifyPrompt(title, content);
+    const result = analyzeStructure(content, classification.type);
     return res.json(result);
   } catch (err) {
     console.error("POST /api/prompts/analyze error:", err);
@@ -324,7 +325,7 @@ router.get("/:id/analyze", async (req: Request, res: Response) => {
     const row = await db.select().from(prompts).where(eq(prompts.id, req.params.id)).limit(1);
     if (!row.length) return res.status(404).json({ error: "Prompt not found" });
     const classification = classifyPrompt(row[0].title, row[0].content);
-    const structure = analyzeStructure(row[0].content);
+    const structure = analyzeStructure(row[0].content, classification.type);
     return res.json({ classification, structure });
   } catch (err) {
     console.error("GET /api/prompts/:id/analyze error:", err);

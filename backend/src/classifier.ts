@@ -16,10 +16,34 @@ interface StructureSection {
 
 export interface StructureAnalysis {
   sections: StructureSection[];
-  score: number; // 0-6 (how many sections detected)
-  total: number;
+  score: number; // applicable sections detected (out of total)
+  total: number; // applicable sections for this prompt type
+  missing: string[]; // expected section names that are absent
   suggestions: string[];
 }
+
+// Sections that must be present for each prompt type.
+// Absent expected sections lower the score; extra sections are neutral.
+// TODO: Undecided whether `reference` prompts should be scored at all or just
+// stored as reading material. For now gated to [Context] only — revisit before
+// adding more expected sections for this type.
+const EXPECTED_SECTIONS: Record<PromptType, string[]> = {
+  system:    ["Role/Persona", "Instructions"],
+  task:      ["Instructions", "Context"],
+  chain:     ["Instructions"],
+  template:  ["Instructions", "Output Format"],
+  snippet:   ["Instructions"],
+  reference: ["Context"],
+};
+
+const SECTION_SUGGESTIONS: Record<string, string> = {
+  "Role/Persona":  "Add a role definition (e.g., 'You are a...') for clearer AI behavior",
+  "Context":       "Add context or background information to ground the AI's understanding",
+  "Instructions":  "Add clear instructions for what the AI should do",
+  "Examples":      "Add 2-3 examples for better few-shot performance (typically improves output quality 20-40%)",
+  "Output Format": "Specify the desired output format (JSON, markdown, bullet points, etc.)",
+  "Constraints":   "Add constraints to guide behavior (e.g., 'Limit to 3 bullet points', 'Only use sources from...')",
+};
 
 const SYSTEM_PATTERNS = [
   /^you are (a|an|the) /im,
@@ -51,15 +75,6 @@ const CHAIN_PATTERNS = [
   /→|->.*→|->/,
 ];
 
-const REFERENCE_PATTERNS = [
-  /^#\s+.+\n/m, // Markdown heading
-  /\bhttps?:\/\/\S+/g,
-  /\bcitation\b/i,
-  /\bsource\b/i,
-  /\baccording to\b/i,
-  /\bresearch shows\b/i,
-];
-
 const SNIPPET_INDICATORS = {
   maxLength: 500,
   patterns: [
@@ -74,10 +89,8 @@ const SNIPPET_INDICATORS = {
 };
 
 export function classifyPrompt(title: string, content: string): ClassificationResult {
-  const text = `${title}\n${content}`.toLowerCase();
   const contentLen = content.length;
 
-  // Score each type
   const scores: Record<PromptType, number> = {
     system: 0,
     task: 0,
@@ -108,7 +121,6 @@ export function classifyPrompt(title: string, content: string): ClassificationRe
   for (const pat of CHAIN_PATTERNS) {
     if (pat.test(content)) scores.chain += 2;
   }
-  // Count numbered steps
   const numberedSteps = content.match(/^\d+\.\s+/gm);
   if (numberedSteps && numberedSteps.length >= 3) scores.chain += 2;
 
@@ -117,7 +129,6 @@ export function classifyPrompt(title: string, content: string): ClassificationRe
   if (contentLen > 8000) scores.reference += 2;
   const linkCount = (content.match(/https?:\/\/\S+/g) || []).length;
   if (linkCount >= 3) scores.reference += 3;
-  // No imperative verbs suggests reference/reading material
   const hasImperatives = /\b(create|write|generate|analyze|build|make|design|list|explain|summarize)\b/i.test(content);
   if (!hasImperatives && contentLen > 2000) scores.reference += 2;
   if (/^#\s+.+/m.test(content) && /^##\s+.+/m.test(content)) scores.reference += 1;
@@ -134,94 +145,55 @@ export function classifyPrompt(title: string, content: string): ClassificationRe
   if (hasImperatives) scores.task += 1;
   if (/\byou (should|will|must|need to)\b/i.test(content)) scores.task += 1;
 
-  // Find the winner
   const entries = Object.entries(scores) as [PromptType, number][];
   entries.sort((a, b) => b[1] - a[1]);
 
   const [topType, topScore] = entries[0];
-  const [, secondScore] = entries[1];
 
-  // If nothing stands out, default to task
   if (topScore === 0) {
     return { type: "task", confidence: 0.3, reason: "No strong type indicators detected; defaulting to task" };
   }
 
   const confidence = Math.min(1, topScore / 10);
   const reasons: Record<PromptType, string> = {
-    system: "Contains role/persona definition patterns",
-    task: "Contains action-oriented instructions",
-    template: `Contains ${templateVarCount} variable placeholder(s)`,
-    chain: "Contains multi-step sequential workflow",
+    system:    "Contains role/persona definition patterns",
+    task:      "Contains action-oriented instructions",
+    template:  `Contains ${templateVarCount} variable placeholder(s)`,
+    chain:     "Contains multi-step sequential workflow",
     reference: "Long-form content with documentation structure",
-    snippet: "Short, composable instruction fragment",
+    snippet:   "Short, composable instruction fragment",
   };
 
-  return {
-    type: topType,
-    confidence,
-    reason: reasons[topType],
-  };
+  return { type: topType, confidence, reason: reasons[topType] };
 }
 
-export function analyzeStructure(content: string): StructureAnalysis {
-  const lines = content.split("\n");
-  const sections: StructureSection[] = [];
-  const suggestions: string[] = [];
+export function analyzeStructure(content: string, type: PromptType): StructureAnalysis {
+  const expected = EXPECTED_SECTIONS[type];
 
-  // 1. Role/Persona
-  const roleMatch = content.match(/^(you are|act as|<role>|persona:|## role)/im);
-  sections.push({
-    name: "Role/Persona",
-    detected: !!roleMatch,
-  });
-  if (!roleMatch) suggestions.push("Add a role definition (e.g., 'You are a...') for clearer AI behavior");
+  // Detect all sections for display; only expected ones affect score/suggestions.
+  const detectedMap: Record<string, boolean> = {
+    "Role/Persona":  /(^|\n)\s*(#+\s*role\b|<role>|you are (a|an|the)\b|act as\b)/i.test(content),
+    "Context":       /(given the following|context:|background:|<context>|## context)/i.test(content),
+    "Instructions":  /(instructions?:|<instructions>|## instructions|your task|please |you (should|will|must|need to))/i.test(content),
+    "Examples":      /(example:|for example|e\.g\.|<examples?>|input:|output:|## example)/i.test(content),
+    "Output Format": /(output.?format|respond in|format:|<output|response format|## output|```)/i.test(content),
+    "Constraints":   /\b(do not|never|don't|avoid|limit(ed)? to|at most|no more than|only use|respond in|keep (it|the response) (to|under))\b/i.test(content),
+  };
 
-  // 2. Context
-  const contextMatch = content.match(/(given the following|context:|background:|<context>|## context)/im);
-  sections.push({
-    name: "Context",
-    detected: !!contextMatch,
-  });
-  if (!contextMatch) suggestions.push("Add context or background information to ground the AI's understanding");
+  const sections: StructureSection[] = Object.entries(detectedMap).map(([name, detected]) => ({
+    name,
+    detected,
+  }));
 
-  // 3. Instructions
-  const instructionMatch = content.match(/(instructions?:|<instructions>|## instructions|your task|please |you (should|will|must|need to))/im);
-  sections.push({
-    name: "Instructions",
-    detected: !!instructionMatch,
-  });
-  if (!instructionMatch) suggestions.push("Add clear instructions for what the AI should do");
-
-  // 4. Examples
-  const exampleMatch = content.match(/(example:|for example|e\.g\.|<examples?>|input:|output:|## example)/im);
-  sections.push({
-    name: "Examples",
-    detected: !!exampleMatch,
-  });
-  if (!exampleMatch) suggestions.push("Add 2-3 examples for better few-shot performance (typically improves output quality 20-40%)");
-
-  // 5. Output format
-  const formatMatch = content.match(/(output.?format|respond in|format:|<output|response format|## output|```)/im);
-  sections.push({
-    name: "Output Format",
-    detected: !!formatMatch,
-  });
-  if (!formatMatch) suggestions.push("Specify the desired output format (JSON, markdown, bullet points, etc.)");
-
-  // 6. Constraints
-  const constraintMatch = content.match(/(do not|never|don't|avoid|constraint|<constraint|## constraint|## rules|important:)/im);
-  sections.push({
-    name: "Constraints",
-    detected: !!constraintMatch,
-  });
-  if (!constraintMatch) suggestions.push("Add constraints to prevent unwanted behavior (e.g., 'Do not...')");
-
-  const score = sections.filter((s) => s.detected).length;
+  const missing = expected.filter((name) => !detectedMap[name]);
+  const suggestions = missing.map((name) => SECTION_SUGGESTIONS[name]);
+  const score = expected.length - missing.length;
 
   return {
     sections,
     score,
-    total: sections.length,
+    total: expected.length,
+    missing,
     suggestions,
   };
 }

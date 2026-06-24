@@ -20,35 +20,37 @@ function buildImprovementPrompt(
   original: string,
   title: string,
   classification: { type: string; confidence: number; reason: string },
-  structure: { sections: { name: string; detected: boolean }[]; score: number; total: number; suggestions: string[] }
+  structure: { score: number; total: number; missing: string[]; suggestions: string[] }
 ): string {
-  const missingSections = structure.sections.filter((s) => !s.detected).map((s) => s.name);
-  const suggestions = structure.suggestions;
+  const missingSections = structure.missing.length > 0 ? structure.missing.join(", ") : "none";
+  const suggestions = structure.suggestions.length > 0
+    ? structure.suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")
+    : "None";
 
-  return `You are a prompt engineering expert. Your task is to improve the following prompt while preserving its original intent and meaning.
+  return `You are improving a saved prompt. Improve its effectiveness while preserving its original intent and meaning. Effectiveness — not section count — is the goal.
 
-## Original Prompt
+## Prompt being improved
 Title: ${title}
-Detected Type: ${classification.type} (${Math.round(classification.confidence * 100)}% confidence)
-Structure Score: ${structure.score}/${structure.total}
-
+Detected type: ${classification.type} (${Math.round(classification.confidence * 100)}% confidence)
+Current structure score: ${structure.score}/${structure.total}
 ---
 ${original}
 ---
 
-## Issues Found
-${missingSections.length > 0 ? `Missing sections: ${missingSections.join(", ")}` : "All sections present."}
+## Analysis
+Missing sections: ${missingSections}
+Suggestions:
+${suggestions}
 
-## Suggestions to Apply
-${suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+## How to improve it
+- Apply the suggestions that make the prompt clearer or more steerable. Skip any that would only pad it to raise the score.
+- Add a structural section ONLY if it changes how a model would respond to THIS prompt. A short, already-clear prompt does not need every section. Do not add a section just because the score is below ${structure.total}.
+- Role/persona: include one only if this is a reusable or system-level prompt where it steers tone, audience, depth, or viewpoint. If you include one, make it a single functional sentence naming the audience, tone, or format. Do not open with flattery or superlatives ("expert", "world-class", "you excel at", "brilliant").
+- Prefer telling the model what TO do over what not to do. Avoid ALL-CAPS mandates and "you MUST" unless a hard constraint genuinely requires it.
+- Keep the original intent and core content intact.
+- Use light markdown only where it aids readability; don't force headings onto a simple prompt.
 
-## Instructions
-1. Rewrite the prompt incorporating ALL the suggestions above
-2. Add any missing structural sections (${missingSections.join(", ")}) where appropriate
-3. Keep the original intent and core content intact
-4. Make the prompt clear, well-structured, and effective
-5. Use markdown formatting where it helps readability
-6. Do NOT add explanations or meta-commentary — output ONLY the improved prompt text`;
+Output ONLY the improved prompt text. No explanation or commentary.`;
 }
 
 // POST /api/prompts/:id/improve — improve a prompt using AI
@@ -59,7 +61,7 @@ router.post("/:id/improve", requireAuth, async (req: Request, res: Response) => 
 
     const prompt = row[0];
     const classification = classifyPrompt(prompt.title, prompt.content);
-    const structure = analyzeStructure(prompt.content);
+    const structure = analyzeStructure(prompt.content, classification.type);
 
     if (structure.score === structure.total && structure.suggestions.length === 0) {
       return res.status(400).json({ error: "This prompt already has a perfect structure score with no suggestions." });

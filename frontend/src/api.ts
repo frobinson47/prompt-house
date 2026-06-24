@@ -139,6 +139,7 @@ export const api = {
         sections: { name: string; detected: boolean }[];
         score: number;
         total: number;
+        missing: string[];
         suggestions: string[];
       };
     }>(`/api/prompts/${id}/analyze`),
